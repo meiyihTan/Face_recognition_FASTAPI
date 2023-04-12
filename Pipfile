@@ -5,7 +5,7 @@ name = "pypi"
 
 [packages]
 mxnet = "==1.6.0"
-insightface = "==0.1.5"
+insightface = "==0.7.3"
 fastapi = "==0.62.0"
 uvicorn = "==0.13.0"
 python-multipart = "==0.0.5"
@@ -14,6 +14,9 @@ datetime = "==4.3"
 typing = "==3.7.4.3"
 python-dotenv = "==0.15.0"
 psycopg2 = "==2.8.6"
+onnxruntime = "1.14.1"
+faiss-cpu = "1.7.3"
+
 
 [dev-packages]
 pylint = "==2.6.0"

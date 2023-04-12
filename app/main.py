@@ -9,7 +9,7 @@ from datetime import datetime
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from app.helper import url_to_image, file_to_image, string_to_nparray
+from app.helper import file_to_image, string_to_nparray
 
 import app.logger as log
 import app.settings as settings
@@ -25,7 +25,7 @@ app = FastAPI(title = "Insightface API")
 log.debug("Constructing FaceAnalysis model.")
 fa = insightface.app.FaceAnalysis()
 log.debug("Preparing FaceAnalysis model.")
-fa.prepare(ctx_id = -1, nms=0.4)
+fa.prepare(ctx_id=0, det_size=(640, 640))
 
 
 engine = create_engine(settings.DATABASE_URL)
@@ -47,8 +47,8 @@ def root():
     return json_resp
 
 
-@app.post("/upload-selfie")
-async def upload_selfie(name: str, file: bytes = File(...)):
+@app.post("/add")
+async def add_single_face(name: str, file: bytes = File(...)):
     # Supports single face in a single image
 
     log.debug("Calling upload_selfie.")
@@ -58,10 +58,14 @@ async def upload_selfie(name: str, file: bytes = File(...)):
     db_face = session.query(Face).filter_by(name = name).first()
     if db_face is not None:
         raise ValidationError("Name must be unique.")
+    
 
     image = file_to_image(file)
     fa_faces = analyze_image(image, fa)
 
+    if len(fa_faces)>1 :
+        raise Exception("More than one face was found. This function only supports adding of one face from an image with only single face in it.")
+    
     fa_emb_str = str(json.dumps(fa_faces[0].embedding.tolist()))
     emb = "cube(ARRAY" + fa_emb_str+ ")"
 
@@ -74,13 +78,14 @@ async def upload_selfie(name: str, file: bytes = File(...)):
     session.execute(update_query)
     session.commit()
     
-    res_face = {"name": face.name, "age": face.age, "gender": face.gender, "embedding": face.embedding}
+    res_face = {"name": face.name, "age": face.age, "gender": face.gender}
     json_compatible_faces = jsonable_encoder(res_face)
 
     result = json_compatible_faces
 
     json_resp = JSONResponse(content={
         "status_code": 200,
+        "statement":"Face sucessfully added",
         "result": result
         })
 
@@ -88,11 +93,37 @@ async def upload_selfie(name: str, file: bytes = File(...)):
     return json_resp
 
 
-@app.post("/face-verification")
-async def face_verification(name: str, file: bytes = File(...)):
+@app.delete("/delete")
+async def delete_face(name: str):
+    # Delete face from db
+
+    log.debug("Calling delete_face.")
+    session = Session()
+
+    target_face = session.query(Face).filter_by(name = name).first()
+    if(target_face is None):
+        raise NotFoundError("Face not found in the database.") 
+    json_compatible_face = jsonable_encoder(target_face)
+    result = {
+        "face": json_compatible_face
+    }
+    session.delete(target_face)
+    session.commit()
+
+    json_resp = JSONResponse(content={
+        "status_code": 200,
+        "result": result,
+        "statement":"Face sucessfully deleted"
+        })
+
+    session.close()
+    return json_resp
+
+@app.post("/recognize")
+async def face_recognition(name: str, file: bytes = File(...)):
     # Supports single face in a single image
 
-    log.debug("Calling face_verification.")
+    log.debug("Calling face_recognition.")
     session = Session()
     
     name = name.lower()
@@ -103,6 +134,10 @@ async def face_verification(name: str, file: bytes = File(...)):
     image = file_to_image(file)
 
     fa_faces = analyze_image(image, fa)
+
+    if len(fa_faces)>1 :
+        raise Exception("More than one face was found. This function only supports input image with only single face in it.")
+
     inp_face = fa_faces[0]
 
     target_emb = string_to_nparray(target_face.embedding)
@@ -110,8 +145,12 @@ async def face_verification(name: str, file: bytes = File(...)):
     sim = compute_similarity(inp_face.embedding, target_emb)
     assert(sim != -99) 
     sim *= 100
-    if(sim >= 60): status = True
-    else: status = False
+    if(sim >= 60):
+        status = True
+        verify=""
+    else: 
+        status = False
+        verify="not "
     result = {
         "similarity": int(sim),
         "status": status
@@ -119,6 +158,7 @@ async def face_verification(name: str, file: bytes = File(...)):
 
     json_resp = JSONResponse(content={
         "status_code": 200,
+        "statement": "The face in the image is "+verify+name,
         "result": result
         })
 
@@ -132,7 +172,7 @@ async def face_search(file: bytes = File(...), limit: int = 1):
 
     log.debug("Calling face_search.")
 
-    if(limit > 10 or limit <= 0):
+    if(limit > 10 or limit <= 0): # the number of search return 
         raise ValidationError("Limit must be more than 0 and less or equals 10.") 
 
     session = Session()
@@ -140,10 +180,16 @@ async def face_search(file: bytes = File(...), limit: int = 1):
     image = file_to_image(file)
 
     fa_faces = analyze_image(image, fa)
+    
+    if len(fa_faces)>1 :
+        raise Exception("More than one face was found. This function only supports input image with only single face in it.")
+    
     inp_face = fa_faces[0]
 
     fa_emb_str = str(json.dumps(inp_face.embedding.tolist()))
     emb = "cube(ARRAY" + fa_emb_str+ ")"
+
+    # Do Euclidean distance calculation over all record in db and rank the results 
     query = (
         "SELECT sub.* "
         "FROM "
@@ -179,135 +225,60 @@ async def face_search(file: bytes = File(...), limit: int = 1):
     return json_resp
 
 
-@app.put("/faces")
-async def update_face(id: int, name: str = None, file: bytes = File(None)):
-    # Supports single face in a single image
-
-    log.debug("Calling update_face.")
+@app.get('/list-all') 
+def get_all_faces():
+    #get all faces from database
     session = Session()
-
-    db_face = session.query(Face).get(id)
-    if(db_face is None):
-        raise NotFoundError("Face not found.") 
-
-    if(file is not None):
-        image = file_to_image(file)
-        fa_faces = analyze_image(image, fa)
-        fa_emb_str = str(json.dumps(fa_faces[0].embedding.tolist()))
-        emb = "cube(ARRAY" + fa_emb_str+ ")"
-        update_query = "UPDATE faces SET embedding = " + emb + " WHERE id = '" + str(db_face.id) + "';"
-        session.execute(update_query)
-        session.commit()
-
-    if(name is not None):
-        name = name.lower()
-        db_face.name = name
-    
-    db_face.updated_at = datetime.today()
-    session.commit()
-    res_face = {"id": db_face.id, "name": db_face.name, "age": db_face.age, "gender": db_face.gender, "embedding": db_face.embedding}
-    json_compatible_faces = jsonable_encoder(res_face)
-
-    result = json_compatible_faces
+    faces = session.query(Face).all()
+    res_faces=[]
+    for face in faces:
+        res_faces.append({
+            "name": face.name,
+            "age": face.age, 
+            "gender": face.gender
+            })
+    result = jsonable_encoder(res_faces)
 
     json_resp = JSONResponse(content={
         "status_code": 200,
+        "statement": "There are(is) "+str(len(faces))+" faces in the database.",
         "result": result
         })
-
-    session.close()
     return json_resp
 
-
-@app.get("/faces")
-async def get_faces(page_size: int = 10, page: int = 1):
+@app.get("/get-single-face-by-name")
+async def get_single_face(name:str):
     # Get faces from db
-    
-    log.debug("Calling get_faces.")
 
-    if(page_size > 100 or page_size <= 0):
-        raise ValidationError("Page size must be more than 0 and less or equals 100.") 
+    log.debug("Calling get_single_face.")
 
     session = Session()
+    target_face = session.query(Face).filter_by(name = name).first()
+    if(target_face is None):
+        raise NotFoundError("Face not found in the database.") 
+
     
-    page -= 1
-    total_count = session.query(Face).count()
-    if(page*page_size >= total_count):
-        raise ValidationError("Page and page count resulted out of range error.") 
-    
-    faces = session.query(Face).limit(page_size).offset(page*page_size).all()
-    
-    json_compatible_faces = jsonable_encoder(faces)
+    json_compatible_face = jsonable_encoder(target_face)
     result = {
-        "faces": json_compatible_faces,
-        "total_count": total_count
+        "face": json_compatible_face
         }
 
     json_resp = JSONResponse(content={
         "status_code": 200,
+        "statement":name+" face sucessfully get",
         "result": result
         })
     session.close()
     return json_resp
 
+####################################################################################
 
-@app.delete("/faces")
-async def delete_face(name: str):
-    # Delete face from db
-
-    log.debug("Calling delete_face.")
-    session = Session()
-
-    target_face = session.query(Face).filter_by(name = name).first()
-    if(target_face is None):
-        raise NotFoundError("Not found in the database.") 
-    json_compatible_face = jsonable_encoder(target_face)
-    result = {
-        "face": json_compatible_face
-    }
-    session.delete(target_face)
-    session.commit()
-
-    json_resp = JSONResponse(content={
-        "status_code": 200,
-        "result": result
-        })
-
-    session.close()
-    return json_resp
-
-
-@app.post("/analyze-image-url")
-async def analyze_image_url(url: str):
+@app.post("/analyze-multiple-faces")
+async def analyze_multiple_faces(file: bytes = File(...)):
     # Supports multiple faces in a single image
-    
-    log.debug("Calling analyze_image_url.")
+    # Not add to database
 
-    image = url_to_image(url)
-    faces = analyze_image(image, fa)
-    res_faces = []
-    for face in faces:
-        res_faces.append({
-            "age": face.age, 
-            "gender": face.gender, 
-            "embedding": json.dumps(face.embedding.tolist())
-            })
-    json_compatible_faces = jsonable_encoder(res_faces)
-    result = {"faces": json_compatible_faces}
-
-    json_resp = JSONResponse(content={
-        "status_code": 200,
-        "result": result
-        })
-
-    return json_resp
-
-
-@app.post("/analyze-image-file")
-async def analyze_image_file(file: bytes = File(...)):
-    # Supports multiple faces in a single image
-
-    log.debug("Calling analyze_image_file.")
+    log.debug("Calling analyze_multiple_faces.")
 
     image = file_to_image(file)
     faces = analyze_image(image, fa)
@@ -316,20 +287,30 @@ async def analyze_image_file(file: bytes = File(...)):
     for face in faces:
         res_faces.append({
             "age": face.age, 
-            "gender": face.gender, 
-            "embedding": json.dumps(face.embedding.tolist())
+            "gender": face.gender
             })
     result = jsonable_encoder(res_faces)
 
     json_resp = JSONResponse(content={
         "status_code": 200,
+        "statement": str(len(faces))+" faces sucessfully being analysed.",
         "result": result
         })
     return json_resp
 
 
-@app.post("/compute-selfie-image-files-similarity")
-async def compute_selfie_image_files_similarity(file1: bytes = File(...), file2: bytes = File(...)):
+# @app.post("/upload-wefie-or-group-photo")
+# async def upload_wefie_or_group_photo(name: str, file: bytes = File(...)):
+    """Supports multiple face in a single image.
+        -If the faces were to save in database.
+
+    TODO(meiyih):
+        1)First, detect and crop face
+        2)Second, ask user to fill in detail for each face
+    """
+
+@app.post("/compute-two_faces-similarity")
+async def compute_two_faces_similarity(file1: bytes = File(...), file2: bytes = File(...)):
     # Limited to one face for each images
     
     log.debug("Calling compute_selfie_image_files_similarity.")
@@ -354,6 +335,7 @@ async def compute_selfie_image_files_similarity(file1: bytes = File(...), file2:
 
     json_resp = JSONResponse(content={
         "status_code": 200,
+        "statement": "Similarity between the two images are "+str(sim),
         "result": result
         })
 
@@ -379,7 +361,6 @@ async def request_validation_error_handler(request, exc):
     log.error(str(exc))
     json_resp = get_error_response(status_code=400, message=str(exc))
     return json_resp
-
 
 @app.exception_handler(Exception)
 async def exception_handler(request, exc):

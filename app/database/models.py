@@ -1,21 +1,8 @@
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy import Column, Integer, String, DateTime, Text, UniqueConstraint, MetaData, Table
+from sqlalchemy import Column, Integer, String, DateTime, UniqueConstraint
 from app.database.custom_types import Cube
 
-# _metadata = MetaData()
-
-# faces = Table('faces', _metadata, 
-#     Column('id', Integer, primary_key=True),
-#     Column('name', String),
-#     Column('age', Integer),
-#     Column('gender', String(1),
-#     Column('embedding', Cube('float8[]')),
-#     Column('created_at', DateTime),
-#     Column('updated_at', DateTime)
-#     )
-
 Base = declarative_base()
-
 class Face(Base):
     __tablename__ = 'faces'
     id = Column(Integer, primary_key=True)
