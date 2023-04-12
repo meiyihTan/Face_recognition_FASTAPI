@@ -29,7 +29,7 @@ def compute_similarity_faiss(embedding1, embedding2):
     except Exception as exc:
         log.error(exc)
         return -99
-
+ 
 def compute_similarity_spicy_cosine(embedding1, embedding2):
     log.debug("Calculating similarity scipy cosine.")
     try:

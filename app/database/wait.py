@@ -1,7 +1,7 @@
 import app.logger as log
 import app.settings as settings
 from time import sleep
-
+ 
 def wait(engine):
     # Wait until database ready
     # Sometimes postgres is not ready yet because it needs to restart at init

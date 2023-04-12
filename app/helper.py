@@ -3,7 +3,7 @@ import numpy as np
 import urllib
 import urllib.request
 import app.logger as log
-
+ 
 def url_to_image(url):
     log.debug("Converting url to image")
     try:
@@ -15,7 +15,6 @@ def url_to_image(url):
         log.error(exc)
         return None
 
-
 def file_to_image(file):
     log.debug("Converting file to image")
     try:
@@ -25,7 +24,6 @@ def file_to_image(file):
     except Exception as exc:
         log.error(exc)
         return None
-
 
 def string_to_nparray(string):
     log.debug("Converting string to nparray")

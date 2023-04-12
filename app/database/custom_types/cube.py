@@ -1,6 +1,5 @@
 import sqlalchemy.types as types
 
-
 class Cube(types.UserDefinedType):
     def __init__(self):
         pass

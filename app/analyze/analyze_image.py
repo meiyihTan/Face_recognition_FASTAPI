@@ -1,7 +1,7 @@
 import app.logger as log
 import numpy as np
 from app.database.models import Face
-
+ 
 def analyze_image(img, fa):
     res_faces = []
     try:

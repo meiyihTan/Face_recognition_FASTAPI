@@ -341,13 +341,11 @@ async def compute_two_faces_similarity(file1: bytes = File(...), file2: bytes = 
 
     return json_resp
 
-
 @app.exception_handler(NotFoundError)
 async def not_found_error_handler(request, exc):
     log.error(str(exc))
     json_resp = get_error_response(status_code=404, message=str(exc))
     return json_resp
-
 
 @app.exception_handler(ValidationError)
 async def validation_error_handler(request, exc):

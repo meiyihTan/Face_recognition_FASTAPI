@@ -1,7 +1,7 @@
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import Column, Integer, String, DateTime, UniqueConstraint
 from app.database.custom_types import Cube
-
+ 
 Base = declarative_base()
 class Face(Base):
     __tablename__ = 'faces'

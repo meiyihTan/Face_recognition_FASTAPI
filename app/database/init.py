@@ -2,7 +2,6 @@ import app.logger as log
 import app.settings as settings
 from app.database.models import Base
 
-
 def init(engine):
 
     if settings.DROP_ALL_EACH_RUN:
